@@ -1,0 +1,57 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Encoder(nn.Module):
+    def __init__(self, latent_space=200):
+        super(Encoder, self).__init__()
+        self.latent_space = latent_space
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),  # 1000 -> 500
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), # 500 -> 250
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # 250 -> 125
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), # 125 -> 63
+            nn.ReLU(),
+            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1), # 63 -> 32
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        # Calculate the size of the features after all conv layers
+        # Output of the last Conv layer is (512, 32, 32)
+        feature_size = 512 * 32 * 32
+        self.fc_mu = nn.Linear(feature_size, latent_space)
+        self.fc_log_var = nn.Linear(feature_size, latent_space)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_log_var(x)
+        return mu, log_var
+
+class Decoder(nn.Module):
+    def __init__(self, latent_space=200):
+        super(Decoder, self).__init__()
+        feature_size = 512 * 32 * 32
+        self.fc = nn.Linear(latent_space, feature_size)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1),  # 32 -> 64
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),  # 64 -> 128
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),   # 128 -> 256
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),    # 256 -> 512
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 3, kernel_size=3, stride=2, padding=1, output_padding=1),     # 512 -> 1024
+            nn.ReLU(),
+            Trim(),  # Adjust output size from 1024 to 1000
+        )
+
+    def forward(self, z):
+        z = self.fc(z)
+        z = z.view(-1, 512, 32, 32)  # Reshape to (batch_size, channels, height, width)
+        x = self.decoder(z)
+        return x
