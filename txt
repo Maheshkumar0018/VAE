@@ -55,3 +55,43 @@ class Decoder(nn.Module):
         z = z.view(-1, 512, 32, 32)  # Reshape to (batch_size, channels, height, width)
         x = self.decoder(z)
         return x
+#########################################################
+  # Encoder setup remains unchanged
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=4, stride=2, padding=1),  # Output: 500x500
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1), # Output: 250x250
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1), # Output: 125x125
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1), # Output: 62x62
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1), # Output: 31x31
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Flatten(),
+            nn.Linear(512 * 31 * 31, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, 2 * latent_space)  # Output both mu and log_var
+        )
+
+        # Define mean & log-variance vectors for latent space 'z'
+        self.mu = torch.nn.Linear(in_features = 4096, out_features = self.latent_space)
+        self.log_var = torch.nn.Linear(in_features = 4096, out_features = self.latent_space)
+
+        # Adjusted Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_space, 4096),
+            Reshape(-1, 512, 2, 2),
+            nn.ConvTranspose2d(512, 256, kernel_size=6, stride=2, padding=1, output_padding=0), # Output: 5x5
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.ConvTranspose2d(256, 128, kernel_size=6, stride=2, padding=1, output_padding=0), # Output: 12x12
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.ConvTranspose2d(128, 64, kernel_size=6, stride=4, padding=1, output_padding=0),  # Output: 50x50
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.ConvTranspose2d(64, 32, kernel_size=6, stride=4, padding=1, output_padding=0),  # Output: 202x202
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.ConvTranspose2d(32, 16, kernel_size=6, stride=5, padding=1, output_padding=0),  # Output: 1012x1012
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.ConvTranspose2d(16, 3, kernel_size=3, stride=1, padding=6, output_padding=0),  # Output: 1000x1000
+            nn.Sigmoid()
+        )
