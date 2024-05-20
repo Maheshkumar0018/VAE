@@ -1,0 +1,150 @@
+transforms_apply = transforms.Compose([
+    torchvision.transforms.CenterCrop((1000, 1000)),  # Center crop to (1000, 1000)
+    transforms.ToTensor()
+])
+
+
+class Reshape(nn.Module):
+    def __init__(self, *args):
+        super().__init__()
+        self.shape = args
+
+    def forward(self, x):
+        return x.view(self.shape)
+
+class Trim(nn.Module):
+    def __init__(self, *args):
+        super().__init__()
+
+    def forward(self, x):
+        return x[:, :, :1000, :1000]  # Adjusted for 1000x1000 size
+    
+
+class VAE(nn.Module):
+    def __init__(self, latent_space=200):
+        super(VAE, self).__init__()
+        
+        self.latent_space = latent_space
+        
+        # Define encoder architecture-
+        self.encoder = nn.Sequential(
+                nn.Conv2d(
+                    in_channels=3, out_channels=32,
+                    stride=2, kernel_size=4,  # Adjusted kernel and stride for larger input
+                    bias=False, padding=1
+                ),
+                nn.BatchNorm2d(num_features=32),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.Conv2d(
+                    in_channels=32, out_channels=64,
+                    stride=2, kernel_size=4,
+                    bias=False, padding=1
+                ),
+                nn.BatchNorm2d(num_features=64),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.Conv2d(
+                    in_channels=64, out_channels=128,
+                    stride=2, kernel_size=4,
+                    bias=False, padding=1
+                ),
+                nn.BatchNorm2d(num_features=128),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.Conv2d(
+                    in_channels=128, out_channels=128,
+                    stride=2, kernel_size=4,
+                    bias=False, padding=1
+                ),
+                nn.BatchNorm2d(num_features=128),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                nn.Flatten(),
+        )    
+        
+        # Define mean & log-variance vectors to represent latent space 'z'-
+        self.mu = torch.nn.Linear(in_features= 128 * 62 * 62, out_features=self.latent_space)
+        self.log_var = torch.nn.Linear(in_features= 128 * 62 * 62, out_features=self.latent_space)
+        
+        # Define decoder architecture-
+        self.decoder = nn.Sequential(
+                torch.nn.Linear(in_features=self.latent_space, out_features=128 * 62 * 62),  # Adjusted linear layer
+                Reshape(-1, 128, 62, 62),
+                
+                nn.ConvTranspose2d(
+                    in_channels=128, out_channels=128,
+                    stride=2, kernel_size=4
+                ),
+                nn.BatchNorm2d(num_features=128),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.ConvTranspose2d(
+                    in_channels=128, out_channels=64,
+                    stride=2, kernel_size=4,
+                    padding=1
+                ),
+                nn.BatchNorm2d(num_features=64),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.ConvTranspose2d(
+                    in_channels=64, out_channels=32,
+                    stride=2, kernel_size=4,
+                    padding=1
+                ),
+                nn.BatchNorm2d(num_features=32),
+                nn.LeakyReLU(0.1, inplace=True),
+                nn.Dropout2d(p=0.25),
+                
+                nn.ConvTranspose2d(
+                    in_channels=32, out_channels=3,
+                    stride=2, kernel_size=4,
+                    padding=1
+                ),
+                
+                # Trim: 3x1001x1001 -> 3x1000x1000
+                Trim(),
+                
+                # Due to input image being in the scale [0, 1], use sigmoid-
+                nn.Sigmoid()
+        )
+
+    def reparameterize(self, mu, log_var):
+        """
+        Reparameterization trick to sample from N(mu, var) from N(0,1).
+        Ensures that samples are on the same device as mu and log_var.
+        """
+        eps = torch.randn_like(mu)  # This ensures that eps is on the same device as mu
+        z = mu + eps * torch.exp(log_var / 2.0)
+        return z
+    
+    def encoding_fn(self, x):
+        x = self.encoder(x)
+        z_mean, z_log_var = self.mu(x), self.log_var(x)
+        encoded = self.reparameterize(z_mean, z_log_var)
+        return encoded
+    
+    def forward(self, x):
+        x = self.encoder(x)
+        mu, log_var = self.mu(x), self.log_var(x)
+        z = self.reparameterize(mu=mu, log_var=log_var)
+        x_recon = self.decoder(z)
+        return x_recon, mu, log_var
+        
+    def shape_computation(self, x):
+        print(f"Input shape: {x.shape}")
+        x = self.encoder(x)
+        print(f"Encoder output shape: {x.shape}")
+        mu, log_var = self.mu(x), self.log_var(x)
+        z = self.reparameterize(mu=mu, log_var=log_var)
+        print(f"mu.shape: {mu.shape}, log_var.shape: {log_var.shape} &"
+              f" z.shape: {z.shape}")
+        x_recon = self.decoder(z)
+        print(f"Decoder output shape: {x_recon.shape}")
+        del x, x_recon, mu, log_var, z
+        return None
